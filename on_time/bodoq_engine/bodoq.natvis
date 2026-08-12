@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?> 
+<AutoVisualizer xmlns="http://schemas.microsoft.com/vstudio/debugger/natvis/2010">
+	<Type Name="TArray&lt;*&gt;">
+		<DisplayString>{{ num={num} }}</DisplayString>
+		<Expand HideRawView="0">
+			<Item Name="[num]">num</Item>
+			<Item Name="[capacity]">capacity</Item>
+			<ArrayItems>
+				<Size>num</Size>
+				<ValuePointer>data</ValuePointer>
+			</ArrayItems>
+		</Expand>
+	</Type>
+	<Type Name="TString&lt;char&gt;">
+		<DisplayString Condition="chars.num == 0">""</DisplayString>
+		<DisplayString>{ chars.data,s }</DisplayString>
+		<Expand HideRawView="0">
+			<Item Name="[length]">chars.num - 1</Item>
+			<ArrayItems>
+				<Size>chars.num-1</Size>
+				<ValuePointer>chars.data</ValuePointer>
+			</ArrayItems>
+		</Expand>
+	</Type>
+	<Type Name="TString&lt;wchar_t&gt;">
+		<DisplayString Condition="chars.num == 0">""</DisplayString>
+		<DisplayString>{ chars.data,su }</DisplayString>
+		<Expand HideRawView="0">
+			<Item Name="[length]">chars.num - 1</Item>
+			<ArrayItems>
+				<Size>chars.num-1</Size>
+				<ValuePointer>chars.data</ValuePointer>
+			</ArrayItems>
+		</Expand>
+	</Type>
+</AutoVisualizer>
