@@ -1,5 +1,4 @@
 #include "BikeTrainerLink.h"
-#include "bodoq_engine/array.h"
 
 #define WIN32_LEAN_AND_MEAN
 #include <Windows.h>
@@ -7,7 +6,9 @@
 #include <bluetoothleapis.h>
 #include <bthledef.h>
 #include <devpkey.h>
+#include <combaseapi.h>
 #include <atomic>
+#include <mutex>
 #include <stdio.h>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -22,6 +23,7 @@
 #pragma comment(lib, "windowsapp.lib")
 #pragma comment(lib, "SetupAPI.lib")
 #pragma comment(lib, "BluetoothApis.lib")
+#pragma comment(lib, "ole32.lib")
 
 #define GATT_CHAR_INDOOR_BIKE_DATA 0x2AD2
 #define GATT_CHAR_FITNESS_MACHINE_CONTROL_POINT 0x2AD9
@@ -41,11 +43,21 @@ struct FBikeTrainerData
 	bool Connected = false;
 };
 
+static double GetMillisecs()
+{
+	LARGE_INTEGER li;
+	QueryPerformanceFrequency(&li);
+	double freq = ((double)li.QuadPart) / 1000.0;
+	QueryPerformanceCounter(&li);
+	return (double)(((double)li.QuadPart) / freq);
+}
+
+
 static bool WriteDataToDevice(FBikeTrainerData* TrainerData, const uint8_t* Data, size_t DataSize)
 {
 	const size_t TotalSize = sizeof(BTH_LE_GATT_CHARACTERISTIC_VALUE) + DataSize;
-	TArray<uint8_t> Buffer(TotalSize, 0u);
-	BTH_LE_GATT_CHARACTERISTIC_VALUE* DataValue = (BTH_LE_GATT_CHARACTERISTIC_VALUE*)Buffer.getData();
+	std::vector<uint8_t> Buffer(TotalSize, 0);
+	BTH_LE_GATT_CHARACTERISTIC_VALUE* DataValue = (BTH_LE_GATT_CHARACTERISTIC_VALUE*)Buffer.data();
 	DataValue->DataSize = (ULONG)DataSize;
 	memcpy(DataValue->Data, Data, DataSize);
 	return BluetoothGATTSetCharacteristicValue(TrainerData->DeviceHandle, &TrainerData->ControlPoint, DataValue, 0, BLUETOOTH_GATT_FLAG_NONE) >= 0;
@@ -59,6 +71,7 @@ FBikeTrainerLink::~FBikeTrainerLink()
 bool FBikeTrainerLink::ConnectToDevice()
 {
 	DisconnectFromDevice();
+
 	Data = new FBikeTrainerData();
 
 	HANDLE LocalDeviceHandle = INVALID_HANDLE_VALUE;
@@ -91,10 +104,10 @@ bool FBikeTrainerLink::ConnectToDevice()
 		if (RequiredSize == 0)
 			continue;
 
-		TArray<uint8_t> Buffer((uint64_t)RequiredSize, 0u);
+		std::vector<uint8_t> Buffer((uint64_t)RequiredSize, 0);
 
-		PSP_DEVICE_INTERFACE_DETAIL_DATA Detail = (PSP_DEVICE_INTERFACE_DETAIL_DATA)Buffer.getData();
-		Detail->cbSize = sizeof(PSP_DEVICE_INTERFACE_DETAIL_DATA);
+		PSP_DEVICE_INTERFACE_DETAIL_DATA Detail = (PSP_DEVICE_INTERFACE_DETAIL_DATA)Buffer.data();
+		Detail->cbSize = sizeof(SP_DEVICE_INTERFACE_DETAIL_DATA);
 
 		SP_DEVINFO_DATA DevInfo = {};
 		DevInfo.cbSize = sizeof(SP_DEVINFO_DATA);
@@ -118,9 +131,9 @@ bool FBikeTrainerLink::ConnectToDevice()
 			continue;
 		}
 
-		TArray<BTH_LE_GATT_SERVICE> Services(ServiceCount, BTH_LE_GATT_SERVICE{});
+		std::vector<BTH_LE_GATT_SERVICE> Services(ServiceCount, BTH_LE_GATT_SERVICE{});
 
-		if (BluetoothGATTGetServices(ServiceHandle, ServiceCount, Services.getData(), &ServiceCount, BLUETOOTH_GATT_FLAG_NONE) < 0)
+		if (BluetoothGATTGetServices(ServiceHandle, ServiceCount, Services.data(), &ServiceCount, BLUETOOTH_GATT_FLAG_NONE) < 0)
 		{
 			CloseHandle(ServiceHandle);
 			continue;
@@ -153,8 +166,8 @@ bool FBikeTrainerLink::ConnectToDevice()
 		CloseHandle(LocalDeviceHandle);
 		return false;
 	}
-	TArray<BTH_LE_GATT_CHARACTERISTIC> Chars(CharCount, BTH_LE_GATT_CHARACTERISTIC{});
-	if (BluetoothGATTGetCharacteristics(LocalDeviceHandle, &FTMSService, CharCount, Chars.getData(), &CharCount, BLUETOOTH_GATT_FLAG_NONE) < 0)
+	std::vector<BTH_LE_GATT_CHARACTERISTIC> Chars(CharCount, BTH_LE_GATT_CHARACTERISTIC{});
+	if (BluetoothGATTGetCharacteristics(LocalDeviceHandle, &FTMSService, CharCount, Chars.data(), &CharCount, BLUETOOTH_GATT_FLAG_NONE) < 0)
 	{
 		CloseHandle(LocalDeviceHandle);
 		return false;
@@ -193,8 +206,8 @@ bool FBikeTrainerLink::ConnectToDevice()
 		return false;
 	}
 
-	TArray<BTH_LE_GATT_DESCRIPTOR> BikeDescriptors(BikeDescCount, BTH_LE_GATT_DESCRIPTOR{});
-	if (BluetoothGATTGetDescriptors(LocalDeviceHandle, &BikeData, BikeDescCount, BikeDescriptors.getData(), &BikeDescCount, BLUETOOTH_GATT_FLAG_NONE) < 0)
+	std::vector<BTH_LE_GATT_DESCRIPTOR> BikeDescriptors(BikeDescCount, BTH_LE_GATT_DESCRIPTOR{});
+	if (BluetoothGATTGetDescriptors(LocalDeviceHandle, &BikeData, BikeDescCount, BikeDescriptors.data(), &BikeDescCount, BLUETOOTH_GATT_FLAG_NONE) < 0)
 	{
 		CloseHandle(LocalDeviceHandle);
 		return false;
@@ -235,8 +248,8 @@ bool FBikeTrainerLink::ConnectToDevice()
 		return false;
 	}
 
-	TArray<BTH_LE_GATT_DESCRIPTOR> ControlDescriptors(ControlDescCount, BTH_LE_GATT_DESCRIPTOR{});
-	if (BluetoothGATTGetDescriptors(LocalDeviceHandle, &ControlPoint, ControlDescCount, ControlDescriptors.getData(), &ControlDescCount, BLUETOOTH_GATT_FLAG_NONE) < 0)
+	std::vector<BTH_LE_GATT_DESCRIPTOR> ControlDescriptors(ControlDescCount, BTH_LE_GATT_DESCRIPTOR{});
+	if (BluetoothGATTGetDescriptors(LocalDeviceHandle, &ControlPoint, ControlDescCount, ControlDescriptors.data(), &ControlDescCount, BLUETOOTH_GATT_FLAG_NONE) < 0)
 	{
 		CloseHandle(LocalDeviceHandle);
 		return false;
@@ -315,7 +328,6 @@ bool FBikeTrainerLink::ConnectToDevice()
 		if (bAvgSpeedPresent)
 		{
 			if (!(Ptr + 2 <= End)) return;
-			float AvgSpeed = (float)((uint16_t)(Ptr[0]) | (uint16_t)(Ptr[1] << 8)) * 0.01f;
 			Ptr += 2;
 		}
 
@@ -330,7 +342,6 @@ bool FBikeTrainerLink::ConnectToDevice()
 		if (bAvgCadencePresent)
 		{
 			if (!(Ptr + 2 <= End)) return;
-			float AvgCadence = (float)((uint16_t)(Ptr[0]) | (uint16_t)(Ptr[1] << 8)) * 0.5f;
 			Ptr += 2;
 		}
 
@@ -357,7 +368,6 @@ bool FBikeTrainerLink::ConnectToDevice()
 		if (bAvgPowerPresent)
 		{
 			if (!(Ptr + 2 <= End)) return;
-			int16_t AvgPower = (int16_t)((uint16_t)(Ptr[0]) | (uint16_t)(Ptr[1] << 8));
 			Ptr += 2;
 		}
 	};
@@ -498,16 +508,27 @@ static const winrt::guid ZWIFT_SYNC_TX_UUID{ 0x00000004, 0x19ca, 0x4651, { 0x86,
 static const winrt::guid ZWIFT_LEGACY_SERVICE_UUID{ 0x00000001, 0x19ca, 0x4651, { 0x86, 0xe5, 0xfa, 0x29, 0xdc, 0xdd, 0x09, 0xd1 } };
 
 #define ZWIFT_NAME_FILTER        L"Zwift Click"
-#define ZWIFT_SCAN_TIMEOUT_MS    30000
+#define ZWIFT_SCAN_TIMEOUT_MS    15000
 #define ZWIFT_HANDSHAKE_WAIT_MS  5000
+#define ZWIFT_CAPABILITY_WAIT_MS 2000
 
-#define ZWIFT_VERBOSE 1
+#define ZWIFT_VERBOSE 0
 
-#if ZWIFT_VERBOSE >= 2
-#define ZWIFT_TRACE(...)  DBG_LOG(__VA_ARGS__)
+#if ZWIFT_VERBOSE > 0
+#define ZWIFT_TRACE  DBG_LOG
 #else
 #define ZWIFT_TRACE(...)  ((void)0)
 #endif
+
+static void EnsureWinRTApartment()
+{
+	static std::once_flag Once;
+	std::call_once(Once, []()
+	{
+		CO_MTA_USAGE_COOKIE Cookie = nullptr;
+		CoIncrementMTAUsage(&Cookie); 
+	});
+}
 
 struct FZwiftClickData
 {
@@ -540,6 +561,14 @@ struct FZwiftClickData
 	std::atomic<uint8_t>  BatteryLevel{ 0 };
 	std::atomic<bool> Connected{ false };
 	std::atomic<bool> Failed{ false };
+	std::atomic<bool> ConnectionInProgress{ false };
+	std::atomic<bool> RejectedForCapability{ false };
+
+	std::atomic<uint64_t> DeviceAddress{ 0 };
+	uint64_t PreferredAddress = 0;
+	uint32_t RequiredMask = 0;
+	uint64_t ExcludedAddresses[ZWIFT_MAX_REJECTED_DEVICES] = {};
+	uint32_t ExcludedCount = 0;
 };
 
 static IBuffer MakeBuffer(const uint8_t* Bytes, size_t Size)
@@ -574,7 +603,7 @@ static void LogBytes(const char* Prefix, const uint8_t* Ptr, size_t Size)
 		Offset += (size_t)Written;
 	}
 
-	DBG_LOG("%s: %s", Prefix, Debug);
+	ZWIFT_TRACE("%s: %s", Prefix, Debug);
 }
 
 static bool WriteZwiftData(FZwiftClickData* ClickData, const uint8_t* Bytes, size_t Size)
@@ -593,11 +622,19 @@ static bool WriteZwiftData(FZwiftClickData* ClickData, const uint8_t* Bytes, siz
 		return ClickData->SyncRXCharacteristic.WriteValueAsync(MakeBuffer(Bytes, Size), Option).get()
 			== GattCommunicationStatus::Success;
 	}
+#if ZWIFT_VERBOSE
 	catch (const winrt::hresult_error& Error)
 	{
-		DBG_LOG("ZWIFT: write failed 0x%08X", (uint32_t)Error.code());
+		ZWIFT_TRACE("ZWIFT: write failed 0x%08X", (uint32_t)Error.code());
 		return false;
 	}
+#else
+	catch (const winrt::hresult_error&)
+	{
+		return false;
+
+	}
+#endif
 }
 
 static bool ReadVarint(const uint8_t*& Ptr, const uint8_t* End, uint64_t& OutValue)
@@ -667,6 +704,23 @@ static constexpr uint32_t ZwiftClickButtonMasks[(uint32_t)EZwiftClickButton::COU
 static_assert(sizeof(ZwiftClickButtonMasks) / sizeof(ZwiftClickButtonMasks[0])
 	== (size_t)EZwiftClickButton::COUNT, "button mask table out of sync with enum");
 
+uint32_t ZwiftButtonMask(EZwiftClickButton Button)
+{
+	if (Button >= EZwiftClickButton::COUNT)
+		return 0;
+
+	return ZwiftClickButtonMasks[(uint8_t)Button];
+}
+
+uint32_t ZwiftAllButtonsMask()
+{
+	uint32_t Mask = 0;
+	for (uint32_t Index = 0; Index < (uint32_t)EZwiftClickButton::COUNT; ++Index)
+		Mask |= ZwiftClickButtonMasks[Index];
+
+	return Mask;
+}
+
 static void ApplyButtonMap(FZwiftClickData* ClickData, uint32_t Map)
 {
 	const uint32_t Present = ClickData->PresentMask.fetch_or(Map) | Map;
@@ -691,6 +745,7 @@ static void OnAsyncValueChanged(FZwiftClickData* ClickData, const IBuffer& Value
 
 	const uint8_t* Ptr = Bytes.data();
 	const size_t Size = Bytes.size();
+	const unsigned long long Addr = (unsigned long long)ClickData->DeviceAddress.load();
 
 	switch (Ptr[0])
 	{
@@ -699,7 +754,7 @@ static void OnAsyncValueChanged(FZwiftClickData* ClickData, const IBuffer& Value
 		uint64_t Map = 0xFFFFFFFFull;
 		if (ReadVarintField(Ptr + 1, Ptr + Size, 1, Map))
 		{
-			ZWIFT_TRACE("ZWIFT: button map 0x%08X", (uint32_t)Map);
+			ZWIFT_TRACE("ZWIFT(%012llX): button map 0x%08X", Addr, (uint32_t)Map);
 			ApplyButtonMap(ClickData, (uint32_t)Map);
 		}
 		else
@@ -715,24 +770,25 @@ static void OnAsyncValueChanged(FZwiftClickData* ClickData, const IBuffer& Value
 		if (ReadVarintField(Ptr + 1, Ptr + Size, 2, Percent) && Percent <= 100)
 		{
 			ClickData->BatteryLevel.store((uint8_t)Percent);
-			ZWIFT_TRACE("ZWIFT: battery %u%%", (uint32_t)Percent);
+			ZWIFT_TRACE("ZWIFT(%012llX): battery %u%%", Addr, (uint32_t)Percent);
 		}
 		break;
 	}
 
 	case 0x15:
 	case 0x2A:
-		ZWIFT_TRACE("ZWIFT: status 0x%02X", Ptr[0]);
+		ZWIFT_TRACE("ZWIFT(%012llX): status 0x%02X", Addr, Ptr[0]);
 		break;
 
 	default:
 		if (Size >= 3 && Ptr[0] == 0xFF && Ptr[1] == 0x05 && Ptr[2] == 0x00)
 		{
-			ZWIFT_TRACE("ZWIFT: device notice 0x%02X%02X", Size > 3 ? Ptr[3] : 0, Size > 4 ? Ptr[4] : 0);
+			ZWIFT_TRACE("ZWIFT(%012llX): device notice 0x%02X%02X", Addr,
+				Size > 3 ? Ptr[3] : 0, Size > 4 ? Ptr[4] : 0);
 		}
 		else
 		{
-			ZWIFT_TRACE("ZWIFT ASYNC (unknown id 0x%02X)", Ptr[0]);
+			ZWIFT_TRACE("ZWIFT(%012llX) ASYNC (unknown id 0x%02X)", Addr, Ptr[0]);
 		}
 		break;
 	}
@@ -745,14 +801,20 @@ static void OnSyncTXValueChanged(FZwiftClickData* ClickData, const IBuffer& Valu
 	if (Bytes.empty())
 		return;
 
-	ZWIFT_TRACE("ZWIFT SYNC TX (%zu bytes)", Bytes.size());
+	const unsigned long long Addr = (unsigned long long)ClickData->DeviceAddress.load();
+
+	ZWIFT_TRACE("ZWIFT(%012llX) SYNC TX (%zu bytes)", Addr, Bytes.size());
 
 	if (Bytes.size() >= 6 && memcmp(Bytes.data(), "RideOn", 6) == 0)
 	{
 		if (Bytes.size() >= 8)
-			DBG_LOG("ZWIFT: handshake ok (version=%u flags=%u)", Bytes[6], Bytes[7]);
+		{
+			ZWIFT_TRACE("ZWIFT(%012llX): handshake ok (version=%u flags=%u)", Addr, Bytes[6], Bytes[7]);
+		}
 		else
-			DBG_LOG("ZWIFT: handshake ok (%zu bytes)", Bytes.size());
+		{
+			ZWIFT_TRACE("ZWIFT(%012llX): handshake ok (%zu bytes)", Addr, Bytes.size());
+		}
 
 		if (ClickData->HandshakeEvent)
 			SetEvent(ClickData->HandshakeEvent);
@@ -766,7 +828,8 @@ struct FScanState
 	HANDLE FoundEvent = nullptr;
 };
 
-static uint64_t ScanForDevice(HANDLE StopEvent, uint32_t TimeoutMs, BluetoothAddressType& OutType)
+static uint64_t ScanForDevice(HANDLE StopEvent, uint32_t TimeoutMs, BluetoothAddressType& OutType,
+	uint64_t PreferredAddress, const uint64_t* Excluded, uint32_t ExcludedCount)
 {
 	OutType = BluetoothAddressType::Unspecified;
 
@@ -778,16 +841,28 @@ static uint64_t ScanForDevice(HANDLE StopEvent, uint32_t TimeoutMs, BluetoothAdd
 	BluetoothLEAdvertisementWatcher Watcher;
 	Watcher.ScanningMode(BluetoothLEScanningMode::Active);
 
-	auto Token = Watcher.Received([&State](BluetoothLEAdvertisementWatcher const&,
+	auto Token = Watcher.Received([&State, PreferredAddress, Excluded, ExcludedCount](
+		BluetoothLEAdvertisementWatcher const&,
 		BluetoothLEAdvertisementReceivedEventArgs const& Args)
 	{
 		if (State.Address.load() != 0)
 			return;
 
+		const uint64_t Addr = Args.BluetoothAddress();
+
+		if (PreferredAddress != 0 && Addr != PreferredAddress)
+			return;
+
+		for (uint32_t Index = 0; Index < ExcludedCount; ++Index)
+		{
+			if (Addr == Excluded[Index])
+				return;
+		}
+
 		const auto Name = Args.Advertisement().LocalName();
 
 		ZWIFT_TRACE("ADV %012llX rssi=%d type=%d name=%ls",
-			(unsigned long long)Args.BluetoothAddress(),
+			(unsigned long long)Addr,
 			(int)Args.RawSignalStrengthInDBm(),
 			(int)Args.BluetoothAddressType(),
 			Name.c_str());
@@ -809,7 +884,7 @@ static uint64_t ScanForDevice(HANDLE StopEvent, uint32_t TimeoutMs, BluetoothAdd
 		if (bMatch)
 		{
 			uint64_t Expected = 0;
-			if (State.Address.compare_exchange_strong(Expected, Args.BluetoothAddress()))
+			if (State.Address.compare_exchange_strong(Expected, Addr))
 			{
 				State.AddressType.store((int32_t)Args.BluetoothAddressType());
 				SetEvent(State.FoundEvent);
@@ -847,8 +922,7 @@ static bool FindService(FZwiftClickData* ClickData)
 			}
 		}
 
-		DBG_LOG("ZWIFT: service not up yet (attempt %d, connstatus=%d)",
-			Attempt, (int)ClickData->Device.ConnectionStatus());
+		ZWIFT_TRACE("ZWIFT: service not up yet (attempt %d, connstatus=%d)", Attempt, (int)ClickData->Device.ConnectionStatus());
 		Sleep(250);
 	}
 
@@ -860,7 +934,7 @@ static bool SetupConnection(FZwiftClickData* ClickData, uint64_t Address, Blueto
 	ClickData->Device = BluetoothLEDevice::FromBluetoothAddressAsync(Address, AddressType).get();
 	if (!ClickData->Device)
 	{
-		DBG_LOG("ZWIFT: FromBluetoothAddressAsync returned null");
+		ZWIFT_TRACE("ZWIFT: FromBluetoothAddressAsync returned null");
 		return false;
 	}
 
@@ -869,7 +943,7 @@ static bool SetupConnection(FZwiftClickData* ClickData, uint64_t Address, Blueto
 
 	if (!FindService(ClickData))
 	{
-		DBG_LOG("ZWIFT: no Zwift service on device");
+		ZWIFT_TRACE("ZWIFT: no Zwift service on device");
 		return false;
 	}
 
@@ -886,7 +960,7 @@ static bool SetupConnection(FZwiftClickData* ClickData, uint64_t Address, Blueto
 		!GetChar(ZWIFT_SYNC_RX_UUID, ClickData->SyncRXCharacteristic) ||
 		!GetChar(ZWIFT_SYNC_TX_UUID, ClickData->SyncTXCharacteristic))
 	{
-		DBG_LOG("ZWIFT: missing characteristics");
+		ZWIFT_TRACE("ZWIFT: missing characteristics");
 		return false;
 	}
 
@@ -894,9 +968,21 @@ static bool SetupConnection(FZwiftClickData* ClickData, uint64_t Address, Blueto
 		[ClickData](BluetoothLEDevice const& Sender, IInspectable const&)
 	{
 		const bool bUp = Sender.ConnectionStatus() == BluetoothConnectionStatus::Connected;
-		DBG_LOG("ZWIFT: link %s", bUp ? "up" : "down");
+		ZWIFT_TRACE("ZWIFT: link %s", bUp ? "up" : "down");
+
 		if (!bUp)
+		{
 			ClickData->Connected.store(false);
+			ClickData->Failed.store(true);
+
+			for (uint32_t Index = 0; Index < (uint32_t)EZwiftClickButton::COUNT; ++Index)
+			{
+				ClickData->Buttons[Index].store(false);
+			}
+
+			ClickData->PressedEdges.store(0);
+			ClickData->PreviousPressed.store(0);
+		}
 	});
 
 	ClickData->SyncTXRevoker = ClickData->SyncTXCharacteristic.ValueChanged(winrt::auto_revoke,
@@ -908,7 +994,7 @@ static bool SetupConnection(FZwiftClickData* ClickData, uint64_t Address, Blueto
 	if (ClickData->SyncTXCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
 		GattClientCharacteristicConfigurationDescriptorValue::Indicate).get() != GattCommunicationStatus::Success)
 	{
-		DBG_LOG("ZWIFT: failed to subscribe to syncTX indications");
+		ZWIFT_TRACE("ZWIFT: failed to subscribe to syncTX indications");
 		return false;
 	}
 
@@ -917,14 +1003,14 @@ static bool SetupConnection(FZwiftClickData* ClickData, uint64_t Address, Blueto
 	const uint8_t Handshake[] = { 'R', 'i', 'd', 'e', 'O', 'n' };
 	if (!WriteZwiftData(ClickData, Handshake, sizeof(Handshake)))
 	{
-		DBG_LOG("ZWIFT: handshake write failed");
+		ZWIFT_TRACE("ZWIFT: handshake write failed");
 		return false;
 	}
 
 	HANDLE HandshakeWait[2] = { ClickData->HandshakeEvent, ClickData->StopEvent };
 	if (WaitForMultipleObjects(2, HandshakeWait, FALSE, ZWIFT_HANDSHAKE_WAIT_MS) != WAIT_OBJECT_0)
 	{
-		DBG_LOG("ZWIFT: no handshake response");
+		ZWIFT_TRACE("ZWIFT: no handshake response");
 		return false;
 	}
 
@@ -937,12 +1023,35 @@ static bool SetupConnection(FZwiftClickData* ClickData, uint64_t Address, Blueto
 	if (ClickData->AsyncCharacteristic.WriteClientCharacteristicConfigurationDescriptorAsync(
 		GattClientCharacteristicConfigurationDescriptorValue::Notify).get() != GattCommunicationStatus::Success)
 	{
-		DBG_LOG("ZWIFT: failed to subscribe to async notifications");
+		ZWIFT_TRACE("ZWIFT: failed to subscribe to async notifications");
 		return false;
 	}
 
 	const uint8_t ClickV2Setup[] = { 0xFF, 0x04, 0x00 };
 	WriteZwiftData(ClickData, ClickV2Setup, sizeof(ClickV2Setup));
+
+	if (ClickData->RequiredMask != 0)
+	{
+		const uint32_t Attempts = ZWIFT_CAPABILITY_WAIT_MS / 100;
+
+		for (uint32_t Attempt = 0; Attempt < Attempts; ++Attempt)
+		{
+			const uint32_t Present = ClickData->PresentMask.load();
+			if ((Present & ClickData->RequiredMask) == ClickData->RequiredMask)
+				return true;
+
+			if (WaitForSingleObject(ClickData->StopEvent, 100) == WAIT_OBJECT_0)
+				return false;
+		}
+
+		ZWIFT_TRACE("ZWIFT: %012llX lacks required buttons (has 0x%08X, need 0x%08X) -- skipping it",
+			(unsigned long long)Address,
+			ClickData->PresentMask.load(),
+			ClickData->RequiredMask);
+
+		ClickData->RejectedForCapability.store(true);
+		return false;
+	}
 
 	return true;
 }
@@ -964,6 +1073,8 @@ static void TearDownConnection(FZwiftClickData* ClickData)
 
 static void ZwiftWorkerMain(FZwiftClickData* ClickData)
 {
+	EnsureWinRTApartment();
+
 	try
 	{
 		winrt::init_apartment(winrt::apartment_type::multi_threaded);
@@ -975,21 +1086,23 @@ static void ZwiftWorkerMain(FZwiftClickData* ClickData)
 	try
 	{
 		BluetoothAddressType AddressType = BluetoothAddressType::Unspecified;
-		const uint64_t Address = ScanForDevice(ClickData->StopEvent, ZWIFT_SCAN_TIMEOUT_MS, AddressType);
+		const uint64_t Address = ScanForDevice(ClickData->StopEvent, ZWIFT_SCAN_TIMEOUT_MS, AddressType,
+			ClickData->PreferredAddress, ClickData->ExcludedAddresses, ClickData->ExcludedCount);
 
 		if (Address == 0)
 		{
-			DBG_LOG("ZWIFT: no device found while scanning");
+			ZWIFT_TRACE("ZWIFT: no device found while scanning");
 			ClickData->Failed.store(true);
 		}
 		else
 		{
-			DBG_LOG("ZWIFT: connecting to %012llX (addrtype=%d)",
-				(unsigned long long)Address, (int)AddressType);
+			ClickData->DeviceAddress.store(Address);
+
+			ZWIFT_TRACE("ZWIFT: connecting to %012llX (addrtype=%d)", (unsigned long long)Address, (int)AddressType);
 
 			if (SetupConnection(ClickData, Address, AddressType))
 			{
-				DBG_LOG("ZWIFT: connected");
+				ZWIFT_TRACE("ZWIFT: connected %012llX (buttons 0x%08X)", (unsigned long long)Address, ClickData->PresentMask.load());
 				ClickData->Connected.store(true);
 			}
 			else
@@ -998,11 +1111,17 @@ static void ZwiftWorkerMain(FZwiftClickData* ClickData)
 			}
 		}
 	}
+#if ZWIFT_VERBOSE
 	catch (const winrt::hresult_error& Error)
 	{
-		DBG_LOG("ZWIFT: exception 0x%08X", (uint32_t)Error.code());
+		ZWIFT_TRACE("ZWIFT: exception 0x%08X", (uint32_t)Error.code());
 		ClickData->Failed.store(true);
 	}
+#else
+	catch (const winrt::hresult_error&) {}
+#endif
+
+	ClickData->ConnectionInProgress.store(false);
 
 	WaitForSingleObject(ClickData->StopEvent, INFINITE);
 
@@ -1015,11 +1134,30 @@ FZwiftClickLink::~FZwiftClickLink()
 	DisconnectFromDevice();
 }
 
-bool FZwiftClickLink::ConnectToDevice()
+bool FZwiftClickLink::ConnectToDevice(uint64_t PreferredAddress, uint32_t RequiredButtons)
 {
 	DisconnectFromDevice();
 
+	if (PreferredAddress == 0)
+		PreferredAddress = LastAddress;
+
+	for (uint32_t Index = 0; Index < RejectedCount; ++Index)
+	{
+		if (PreferredAddress == RejectedAddresses[Index])
+		{
+			PreferredAddress = 0;
+			break;
+		}
+	}
+
 	Data = new FZwiftClickData();
+	Data->PreferredAddress = PreferredAddress;
+	Data->RequiredMask = RequiredButtons;
+	Data->ExcludedCount = RejectedCount;
+
+	for (uint32_t Index = 0; Index < RejectedCount; ++Index)
+		Data->ExcludedAddresses[Index] = RejectedAddresses[Index];
+
 	Data->StopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 	Data->HandshakeEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
 
@@ -1032,6 +1170,7 @@ bool FZwiftClickLink::ConnectToDevice()
 		return false;
 	}
 
+	Data->ConnectionInProgress.store(true);
 	Data->Worker = std::thread(ZwiftWorkerMain, Data);
 	return true;
 }
@@ -1040,6 +1179,34 @@ void FZwiftClickLink::DisconnectFromDevice()
 {
 	if (!Data)
 		return;
+
+	const uint64_t Address = Data->DeviceAddress.load();
+
+	if (Address != 0)
+	{
+		if (Data->RejectedForCapability.load())
+		{
+			bool bAlreadyListed = false;
+			for (uint32_t Index = 0; Index < RejectedCount; ++Index)
+			{
+				if (RejectedAddresses[Index] == Address)
+				{
+					bAlreadyListed = true;
+					break;
+				}
+			}
+
+			if (!bAlreadyListed && RejectedCount < ZWIFT_MAX_REJECTED_DEVICES)
+				RejectedAddresses[RejectedCount++] = Address;
+
+			if (LastAddress == Address)
+				LastAddress = 0;
+		}
+		else
+		{
+			LastAddress = Address;
+		}
+	}
 
 	if (Data->StopEvent)
 		SetEvent(Data->StopEvent);
@@ -1063,9 +1230,21 @@ void FZwiftClickLink::DisconnectFromDevice()
 	Data = nullptr;
 }
 
+void FZwiftClickLink::ForgetRejections()
+{
+	RejectedCount = 0;
+	for (uint32_t Index = 0; Index < ZWIFT_MAX_REJECTED_DEVICES; ++Index)
+		RejectedAddresses[Index] = 0;
+}
+
 bool FZwiftClickLink::IsConnected() const
 {
 	return Data && Data->Connected.load();
+}
+
+bool FZwiftClickLink::IsConnectionInProgress() const
+{
+	return Data && Data->ConnectionInProgress.load();
 }
 
 bool FZwiftClickLink::IsFinished() const
@@ -1076,6 +1255,30 @@ bool FZwiftClickLink::IsFinished() const
 uint8_t FZwiftClickLink::GetBatteryLevel() const
 {
 	return Data ? Data->BatteryLevel.load() : 0;
+}
+
+uint64_t FZwiftClickLink::GetDeviceAddress() const
+{
+	if (Data)
+	{
+		const uint64_t Address = Data->DeviceAddress.load();
+		if (Address != 0)
+			return Address;
+	}
+	return LastAddress;
+}
+
+uint32_t FZwiftClickLink::GetPresentButtons() const
+{
+	return Data ? Data->PresentMask.load() : 0;
+}
+
+bool FZwiftClickLink::HasButton(EZwiftClickButton Button) const
+{
+	if (!Data || Button >= EZwiftClickButton::COUNT)
+		return false;
+
+	return (Data->PresentMask.load() & ZwiftClickButtonMasks[(uint8_t)Button]) != 0;
 }
 
 bool FZwiftClickLink::IsPressed(EZwiftClickButton Button) const
@@ -1093,4 +1296,120 @@ bool FZwiftClickLink::WasPressed(EZwiftClickButton Button) const
 
 	const uint32_t Mask = ZwiftClickButtonMasks[(uint8_t)Button];
 	return (Data->PressedEdges.fetch_and(~Mask) & Mask) != 0;
+}
+
+bool FBikeLink::Connect()
+{
+	bool bAny = false;
+
+	if (!Trainer.IsConnected() && !bTrainerAttempted)
+	{
+		bTrainerAttempted = true;
+		bAny |= Trainer.ConnectToDevice();
+	}
+
+	if (Click.IsConnected())
+	{
+		ClickFailureCount = 0;
+		return bAny;
+	}
+
+	if (Click.IsConnectionInProgress())
+		return bAny;
+
+	const double Now = GetMillisecs();
+	if (Now < NextClickAttempt)
+		return bAny;
+
+	NextClickAttempt = Now + 30.0;
+
+	uint32_t Required = 0;
+
+	if (bRequireDirectionalPad)
+	{
+		if (ClickFailureCount < 3)
+		{
+			Required =
+				ZwiftButtonMask(EZwiftClickButton::LEFT) |
+				ZwiftButtonMask(EZwiftClickButton::UP) |
+				ZwiftButtonMask(EZwiftClickButton::RIGHT) |
+				ZwiftButtonMask(EZwiftClickButton::DOWN);
+		}
+		else if (ClickFailureCount == 3)
+		{
+			ZWIFT_TRACE("ZWIFT: no controller with a D-pad found, accepting any device");
+			Click.ForgetRejections();
+		}
+	}
+
+	++ClickFailureCount;
+	bAny |= Click.ConnectToDevice(0, Required);
+
+	return bAny;
+}
+
+void FBikeLink::Disconnect()
+{
+	Trainer.DisconnectFromDevice();
+	Click.DisconnectFromDevice();
+}
+
+float FBikeLink::GetSpeed() const
+{
+	return Trainer.GetSpeed();
+}
+
+int32_t FBikeLink::GetPower() const
+{
+	return Trainer.GetPower();
+}
+
+float FBikeLink::GetCadence() const
+{
+	return Trainer.GetCadence();
+}
+
+void FBikeLink::SetResistance(uint8_t Value)
+{
+	Trainer.SetResistance(Value);
+}
+
+bool FBikeLink::IsTrainerConnected() const
+{
+	return Trainer.IsConnected();
+}
+
+bool FBikeLink::IsConnected() const
+{
+	return IsTrainerConnected() || IsClickConnected();
+}
+
+bool FBikeLink::WasPressed(EZwiftClickButton Button) const
+{
+	return Click.WasPressed(Button);
+}
+
+bool FBikeLink::IsPressed(EZwiftClickButton Button) const
+{
+	return Click.IsPressed(Button);
+}
+
+bool FBikeLink::IsClickConnected() const
+{
+	return Click.IsConnected();
+}
+
+bool FBikeLink::IsConnectionInProgress() const
+{
+	return Click.IsConnectionInProgress();
+}
+
+uint8_t FBikeLink::GetBatteryLevel() const
+{
+	return Click.GetBatteryLevel();
+}
+
+void FBikeLink::Update()
+{
+	Connect();
 }

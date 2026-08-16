@@ -82,46 +82,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClInclude Include="on_time\BikeTrainerLink.h" />
-    <ClInclude Include="on_time\bodoq_engine\array.h" />
-    <ClInclude Include="on_time\bodoq_engine\debug.h" />
-    <ClInclude Include="on_time\bodoq_engine\file.h" />
-    <ClInclude Include="on_time\bodoq_engine\filesystem.h" />
-    <ClInclude Include="on_time\bodoq_engine\function.h" />
-    <ClInclude Include="on_time\bodoq_engine\gpu.h" />
-    <ClInclude Include="on_time\bodoq_engine\hash.h" />
-    <ClInclude Include="on_time\bodoq_engine\hash_table.h" />
-    <ClInclude Include="on_time\bodoq_engine\input.h" />
-    <ClInclude Include="on_time\bodoq_engine\json.h" />
-    <ClInclude Include="on_time\bodoq_engine\math.h" />
-    <ClInclude Include="on_time\bodoq_engine\memory.h" />
-    <ClInclude Include="on_time\bodoq_engine\net_socket.h" />
-    <ClInclude Include="on_time\bodoq_engine\pix.h" />
-    <ClInclude Include="on_time\bodoq_engine\ref_counter.h" />
-    <ClInclude Include="on_time\bodoq_engine\render_graph.h" />
-    <ClInclude Include="on_time\bodoq_engine\string.h" />
-    <ClInclude Include="on_time\bodoq_engine\time.h" />
-    <ClInclude Include="on_time\bodoq_engine\win32.h" />
-    <ClInclude Include="on_time\bodoq_engine\window.h" />
+    <ClInclude Include="bike\BikeTrainerLink.h" />
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="on_time\BikeTrainerLink.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\debug.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\file.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\filesystem.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\gpu.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\hash.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\input.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\json.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\math.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\memory.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\net_socket.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\pix.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\render_graph.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\string.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\time.cpp" />
-    <ClCompile Include="on_time\bodoq_engine\window.cpp" />
-    <ClCompile Include="on_time\on_time.cpp" />
+    <ClCompile Include="bike\BikeTrainerLink.cpp" />
+    <ClCompile Include="bike\bike_main.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
